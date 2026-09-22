@@ -1,7 +1,7 @@
 {
   "name": "dsh-ark-plans",
-  "version": "0.2.0",
-  "description": "Volcengine Ark (火山方舟) Agent Plan and Coding Plan model routes for DeepSeek Harness: two ready provider profiles declared on the shipped llm-pi-ai adapter, plus a session-header pill showing each plan's remaining allowance and when it next refreshes.",
+  "version": "0.3.0",
+  "description": "Volcengine Ark (火山方舟) Agent Plan and Coding Plan model routes for DeepSeek Harness: two ready provider profiles declared on the shipped llm-pi-ai adapter, a session-header pill showing each plan's remaining allowance and when it next refreshes, and a Settings page that enables or disables individual models in the model selector.",
   "type": "module",
   "license": "MIT",
   "author": "HaydenSmith1121",
@@ -27,9 +27,16 @@
   },
   "files": [
     "lib",
+    "scripts",
     "cordis.patch.yml",
-    "docs"
+    "docs",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
   ],
+  "scripts": {
+    "check": "node scripts/check-catalog.mjs && node scripts/test-selection.mjs && node scripts/test-client-bundle.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
@@ -46,6 +53,7 @@
     "@deepseek-ai/dsh-client-ui-conversation": "0.1.6-alpha.1",
     "@deepseek-ai/dsh-credentials": "0.1.6-alpha.1",
     "@deepseek-ai/dsh-llm-pi-ai": "0.1.6-alpha.1",
+    "@deepseek-ai/schemastery": "^3.18.1-rc.1",
     "react": "^18.2.0"
   },
   "keywords": [
@@ -58,6 +66,7 @@
     "agent-plan",
     "coding-plan",
     "quota",
+    "model-selection",
     "llm",
     "cordis"
   ]

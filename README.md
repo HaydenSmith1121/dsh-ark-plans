@@ -2,11 +2,62 @@
 
 把**火山方舟（Volcengine Ark）的 Agent Plan 与 Coding Plan** 接入 DeepSeek Harness：
 安装后，两条套餐车道会作为 provider 出现在 harness 的模型选择器里，用来对话、跑 agent；
-会话标题栏右侧还会显示**每条车道的额度用量与下次刷新时间**。
+会话标题栏右侧还会显示**每条车道的额度用量与下次刷新时间**；
+**设置 → 模型管理**里可以逐条**启用/停用**模型，把用不到的那些从选择器里收起来。
 
 - 适配 dsh 运行时：**`0.1.6-alpha.1`**
-- 形态：**组合配置 + host 半（凭据诊断 / 额度查询）+ client 半（标题栏额度 pill）**
+- 形态：**组合配置 + host 半（凭据诊断 / 额度查询 / 模型开关）+ client 半（额度 pill + 模型管理页）**
 - 许可：MIT
+
+---
+
+## 〇之一、模型启用/停用（0.3.0 新增）
+
+**设置 → 模型管理**列出每条车道能提供的全部模型，取消勾选即可把它从
+**模型选择器**里隐藏，点「保存」立即生效 —— **不需要重启 harness**。
+
+- 「全选」把该车道恢复成完整清单。
+- 保存按钮只在有改动时可点；写入失败会在原地显示原因，你选的勾不会被悄悄回滚。
+- 本页**只**管这两条方舟车道的模型清单；API Key 仍然在 **设置 → 模型** 里填。
+
+### 它改的是什么
+
+不是新造机制，而是把 pi-ai 本来就支持的「用户层覆盖」接上 UI：
+
+```yaml
+# $DSH_HOME/settings.yaml —— 只保留 glm-5.3 与 kimi-k3
+dsh-ark-plans:
+  enabledModelIds:
+    ark-agent-plan:
+      - glm-5.3
+      - kimi-k3
+llm-pi-ai:
+  providers:
+    ark-agent-plan:
+      models:
+        - id: glm-5.3
+          name: GLM-5.3
+          contextWindow: 1048576
+        - id: kimi-k3
+          name: Kimi-K3
+          contextWindow: 200000
+```
+
+- `dsh-ark-plans.enabledModelIds` 记的是**你的意图**（本插件自己的 settings 段）。
+- `llm-pi-ai.providers.<route>.models` 才是真正决定选择器内容的那一层：
+  pi-ai 的 `models` 是**整表替换**，所以「隐藏一个模型」只能靠不列它。
+- 两处都由插件写入，你不用手改 YAML；手改也一样有效（页面会读回来）。
+
+### 三条边界（都实测过）
+
+1. **空清单 = 全开，不是全关。** 没配置过、或列表为空时，该车道显示完整清单；
+   存进去的 id 全部不认识时同样退回「全开」，避免清单改名后把你锁在空选择器里。
+2. **「全开」写的是完整清单，不是空清单。** pi-ai 对**内置目录不认识的 route**
+   （方舟两条车道都是手写声明的）要求 `models` 非空，写空会直接报
+   `provider "ark-agent-plan" resolves no models…`，所以恢复全选必须把清单列全。
+   本仓库的 `scripts/test-selection.mjs` 把这条钉住了，防止以后改回去。
+3. **组合层声明的 provider 本身删不掉**（pi-ai 的设计）。不想要整条车道，就
+   `dsh plugin --profile web remove dsh-ark-plans`；只想少几个模型，用本页即可。
 
 ---
 
@@ -96,7 +147,9 @@ harness 官方自带 `@deepseek-ai/dsh-llm-pi-ai` 适配器，它在每个 profi
 ## 二、安装与启用
 
 ```bash
-dsh plugin --profile web add dsh-ark-plans-0.1.0.tgz
+dsh plugin --profile web add dsh-ark-plans-0.3.0.tgz
+# 或直接装 GitHub 源
+dsh plugin --profile web add github:HaydenSmith1121/dsh-ark-plans
 # 重启该 profile（dsh web 不能同时起两次）
 ```
 
@@ -104,7 +157,8 @@ dsh plugin --profile web add dsh-ark-plans-0.1.0.tgz
 
 1. 打开 **设置 → 模型**，能看到 `火山方舟 Agent Plan` 与 `火山方舟 Coding Plan` 两行；
 2. 点进对应行的 **API Key** 输入框，粘贴套餐的 API Key；
-3. 回到对话页，在模型选择器里选一条方舟模型即可。
+3. 回到对话页，在模型选择器里选一条方舟模型即可；
+4. （可选）打开 **设置 → 模型管理**，把用不到的模型停用掉，选择器就清爽了。
 
 **Key 存在哪**：`$DSH_HOME/.credentials.yaml` 顶层 `refs:` 下，键名就是配置里声明的
 引用名（`ARK_AGENT_PLAN_API_KEY` / `ARK_CODING_PLAN_API_KEY`）。密钥**不会**进
@@ -180,6 +234,11 @@ llm-pi-ai:
 也可以直接在 **设置 → 模型** 里编辑该 provider，页面写的就是这个 section。
 模型 id 写错时，该 provider 行会显示红色诊断（`catalogError`），行本身不会消失，可随时改回来。
 
+> ⚠️ **注意**：在 settings 里手写的 `models` 会**整表替换**该 provider 的清单，也就等于
+> 决定了选择器里有哪些模型。写完之后 **设置 → 模型管理** 读到的「全部模型」仍然是本插件
+> 内置的那份清单 —— 两边不一致时，以页面保存动作为准：一保存就按页面的勾选重写本段。
+> 想长期保留自己手写的清单，就别再用那个页面的保存按钮；用页面的「全选」会恢复成内置清单。
+
 ---
 
 ## 六、已知边界（都是实测结论）
@@ -192,7 +251,8 @@ llm-pi-ai:
    因此模型选择器里**没有**思考强度可调 —— 模型按其默认强度思考，harness 也**不发送**
    任何 `reasoning_effort` 参数。这是刻意的保守选择：声明了却发错参数会导致请求 400。
 3. **组合层声明的 provider 用户删不掉**。这是 pi-ai 的设计（用户层只能覆盖、不能删除
-   base 路由）：不想要就 `dsh plugin --profile web remove dsh-ark-plans`。
+   base 路由）：不想要整条车道就 `dsh plugin --profile web remove dsh-ark-plans`。
+   只想少几个模型，用 **设置 → 模型管理** 逐条停用即可（0.3.0 起），不需要动配置。
 4. **和 `arkcli helper configure deepseek-harness` 会各写一份**。arkcli 写的是
    `llm-pi-ai.providers.arkcli-<planType>`，本插件写的是 `ark-agent-plan` /
    `ark-coding-plan`；两者路由名不同，会同时出现在选择器里（各自独立凭据）。
@@ -219,21 +279,28 @@ dsh-ark-plans: Coding Plan declared but keyless — open 设置 → 模型 … �
 它只通过 `ctx.credentials.describe()` 读**引用是否存在**（从不读密钥值本身），
 所有分支都自行兜住异常：诊断永远不会拖垮插件树。
 
-额度查询同理只能落在 host 半（签名与文件读取都在 Node 侧）。两半之间用**一条同源
+额度查询同理只能落在 host 半（签名与文件读取都在 Node 侧）。两半之间用**两条同源
 HTTP 路由**通信：
 
 ```none
-GET /plugins/dsh-ark-plans/quota[?force=1]   →  { ok, plans[], checkedAt }
+GET  /plugins/dsh-ark-plans/quota[?force=1]   →  { ok, plans[], checkedAt }
+GET  /plugins/dsh-ark-plans/models            →  { ok, plans[] }
+POST /plugins/dsh-ark-plans/models            →  { ok, plan, plans[] }   写模型开关
 ```
 
 - 用 `ctx.webServer.register({ kind: 'exact', path })` 注册。**exact 而非 prefix**：
   只占这一个路径，不会顺带吃掉它下面的所有子路径；exact 表又先于 prefix 表匹配，
   所以即使它落在 `/plugins` 这个前缀下，也不会被客户端模块分发器抢走。
-- 处理器**只接受 GET/HEAD**（其余 405），并且**限定 loopback 来源**（127.0.0.1 / ::1，
-  否则 403）：这条路由读到的是账号自己的订阅状态，不该让网内其它机器看到。
+- 处理器**只接受约定方法**（其余 405），并且**限定 loopback 来源**（127.0.0.1 / ::1，
+  否则 403）：额度那条读到的是账号自己的订阅状态，模型那条会**写**用户的 settings，
+  两条都不该让网内其它机器碰到。
 - 控制面出错时返回 **HTTP 200 + 说明性 body**，而不是 5xx —— 「读不到额度，原因是 X」
   本身就是 pill 必须能渲染的一种状态，5xx 只会变成浏览器侧一个没有信息的 fetch 失败。
+  模型那条同理：写失败的原因要能直接显示在页面上。
 - `?force=1` 绕过 60 秒缓存，供面板上的「刷新」使用。
+- 模型开关的写入走 **`ctx.settings`**（`installSection` 注册 `dsh-ark-plans` 段，再
+  `update('llm-pi-ai', …)` 应用），插件不碰任何文件：`settings.yaml` 由 settings 服务
+  按它自己的分层规则改写，凭据、锁与 revision 都不归本插件管。
 
 ---
 
@@ -241,11 +308,25 @@ GET /plugins/dsh-ark-plans/quota[?force=1]   →  { ok, plans[], checkedAt }
 
 ```none
 dsh-ark-plans/
-├─ package.json          # dsh.bundle.patch → cordis.patch.yml；dsh.client → lib/client.js
-├─ cordis.patch.yml      # 两条 provider profile（路由 / 模型清单 / 凭据引用）
-├─ lib/index.js          # host 半：凭据诊断 + 额度查询（OpenTOP V4 签名）+ 额度路由
-├─ lib/client.js         # client 半：标题栏额度 pill（factory-form CJS bundle）
-├─ docs/verification.md  # 本包的实测记录（端点 / 协议 / 模型 / 额度）
+├─ package.json            # dsh.bundle.patch → cordis.patch.yml；dsh.client → lib/client.js
+├─ cordis.patch.yml        # 两条 provider profile（路由 / 模型清单 / 凭据引用）
+├─ lib/index.js            # host 半：凭据诊断 + 额度查询（OpenTOP V4 签名）+ 模型开关
+├─ lib/client.js           # client 半：标题栏额度 pill + 设置里的模型管理页
+├─ scripts/
+│  ├─ check-catalog.mjs    # 断言 cordis.patch.yml 与 lib/index.js 的清单一致
+│  ├─ test-selection.mjs   # 启用/停用逻辑（含「空清单=全开」「全开不能写空」两条不变量）
+│  └─ test-client-bundle.mjs # 按浏览器的方式加载 client 半，断言它注册的两个 Slot
+├─ docs/verification.md    # 本包的实测记录（端点 / 协议 / 模型 / 额度）
 ├─ README.md
 └─ LICENSE
 ```
+
+## 九、自检
+
+```bash
+npm run check
+```
+
+三条守卫：**组合清单与代码清单一致**、**启用/停用逻辑的不变量**、**client 半真的能
+注册进两个 Slot**（按浏览器的方式加载 factory，不需要真浏览器）。
+
